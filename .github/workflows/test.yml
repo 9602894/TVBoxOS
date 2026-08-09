@@ -2,8 +2,8 @@ name: Auto Build TVBoxOS (Standalone)
 
 on:
   schedule:
-    - cron: '0 13 * * *'          # 每天 UTC 13:00 自动运行
-  workflow_dispatch:               # 允许手动触发
+    - cron: '0 13 * * *'
+  workflow_dispatch:
     inputs:
       rebuild:
         description: '强制重新构建'
@@ -13,7 +13,7 @@ on:
         description: '构建后不提交发布新版'
         required: false
         type: boolean
-  push:                            # 推送到 main/master 分支时触发
+  push:
     branches: [ main, master ]
 
 jobs:
@@ -25,7 +25,6 @@ jobs:
         with:
           fetch-depth: 0
 
-      # 生成版本标签 (基于当前时间)
       - name: Generate Version Tag
         id: version
         run: |
@@ -47,9 +46,16 @@ jobs:
             sed -i "/jitpack.io/a\        maven { url 'https://o0halflife0o.github.io/crosswalk/releases/crosswalk/android/maven2' }" build.gradle
           fi
 
-          # 修复 Python 路径（兼容多种写法）
-          sed -i '/buildPython/s/["'"'"'].*["'"'"']/"python3"/' app/build.gradle
-          grep "buildPython" app/build.gradle || echo "Warning: buildPython not found"
+          # ========== 修复 Python 路径 ==========
+          # pyramid/build.gradle 中的 buildPython 配置
+          sed -i 's#buildPython("D:/Programs/Python/Python38/python.exe")#buildPython("python3")#g' pyramid/build.gradle
+          # 同时也修复 app/build.gradle（以防万一）
+          sed -i '/buildPython/s/["'"'"'].*["'"'"']/"python3"/' app/build.gradle || true
+          # 验证修复是否成功
+          echo "=== pyramid/build.gradle 中的 buildPython ==="
+          grep "buildPython" pyramid/build.gradle
+          echo "=== app/build.gradle 中的 buildPython ==="
+          grep "buildPython" app/build.gradle || echo "app/build.gradle 中没有 buildPython 配置"
 
       - name: Compress Source Code
         run: |
@@ -58,7 +64,6 @@ jobs:
       - name: Release Apk Sign (Insert signing config)
         working-directory: ${{ github.workspace }}
         run: |
-          # 生成 signingConfigs 块
           cat << 'EOF' > signing_configs.gradle
           signingConfigs {
               if (project.hasProperty("RELEASE_STORE_FILE")) {
