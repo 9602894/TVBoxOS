@@ -90,6 +90,10 @@ jobs:
           sed -i '$a\RELEASE_STORE_PASSWORD=TVBoxOSC'       ./gradle.properties
           sed -i '$a\RELEASE_KEY_PASSWORD=TVBoxOSC'         ./gradle.properties
           sed -i 's/^#\(org.gradle.jvmargs=.*\)/\1/'        ./gradle.properties
+      - name: Create local.properties               # <--- 新增步骤，解决构建报错
+        if: ${{ env.commit }}
+        working-directory: TVBoxOSC
+        run: echo "sdk.dir=/usr/local/lib/android/sdk" > local.properties
       - uses: actions/setup-java@v4
         if: ${{ matrix.java_ver }}
         with:
