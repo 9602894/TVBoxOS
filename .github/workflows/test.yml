@@ -1,8 +1,8 @@
-name: Test
+name: Auto Build TVBoxOS
 
 on:
   schedule:
-    - cron: 0 13 1 * *
+    - cron: '0 13 * * *'   # 每天 UTC 13:00 运行，可调整
   workflow_dispatch:
     inputs:
       rebuild:
@@ -13,6 +13,8 @@ on:
         description: '构建后不提交发布新版'
         required: false
         type: boolean
+  push:
+    branches: [ main, master ]   # 当您推送代码到主分支时触发（用于测试）
 
 jobs:
   build:
@@ -25,7 +27,7 @@ jobs:
             repoName: TVBoxOS
             branchName: main
     steps:
-      - name: Checkout
+      - name: Checkout (your repo)
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -44,7 +46,7 @@ jobs:
           fi
           echo "commit=$commit"
 
-      - name: Checkout Source Code
+      - name: Checkout Source Code (upstream)
         if: ${{ env.commit }}
         run: |
           git clone ${{ env.upStream }} TVBoxOSC
@@ -71,17 +73,22 @@ jobs:
             sed -i "/jitpack.io/a\        maven { url 'https://o0halflife0o.github.io/crosswalk/releases/crosswalk/android/maven2' }" build.gradle
           fi
 
+          # 修复 Python 路径：直接替换 app/build.gradle 中的 buildPython 设置
+          echo "Fixing buildPython path..."
+          sed -i '/buildPython/s/["'"'"'].*["'"'"']/"python3"/' app/build.gradle
+          grep "buildPython" app/build.gradle || echo "Warning: buildPython not found"
+
       - name: Compress Source Code
         if: ${{ env.commit }}
         working-directory: TVBoxOSC
         run: |
           tar -cJf sourceCode-${{ env.commitS }}.tar.xz --exclude=.git --exclude=.github *
 
-      # ========== 签名配置（无 Base64） ==========
-      - name: Release Apk Sign
+      - name: Release Apk Sign (Insert signing config)
         if: ${{ env.commit }}
         working-directory: TVBoxOSC
         run: |
+          # 生成 signingConfigs 块
           cat << 'EOF' > signing_configs.gradle
           signingConfigs {
               if (project.hasProperty("RELEASE_STORE_FILE")) {
@@ -105,6 +112,7 @@ jobs:
                       }
           EOF
 
+          # 插入到 app/build.gradle
           cp app/build.gradle app/build.gradle.bak
           awk '
             /defaultConfig {/ {
@@ -117,6 +125,7 @@ jobs:
           sed -i "/debug {/r signing_config.gradle" app/build.gradle
           sed -i "/release {/r signing_config.gradle" app/build.gradle
 
+          # 复制密钥并设置 gradle.properties
           cp -f ${{ github.workspace }}/.github/workflows/TVBoxOSC.jks app/TVBoxOSC.jks
           sed -i '$a\RELEASE_STORE_FILE=./TVBoxOSC.jks'     ./gradle.properties
           sed -i '$a\RELEASE_KEY_ALIAS=TVBoxOSC'            ./gradle.properties
@@ -125,25 +134,11 @@ jobs:
           sed -i 's/^#\(org.gradle.jvmargs=.*\)/\1/'        ./gradle.properties
 
           rm signing_configs.gradle signing_config.gradle
-      # ===========================================
 
       - name: Create local.properties
         if: ${{ env.commit }}
         working-directory: TVBoxOSC
         run: echo "sdk.dir=/usr/local/lib/android/sdk" > local.properties
-
-      # ========== 修复所有 build.gradle 中的 Python 路径 ==========
-      - name: Fix buildPython path
-        if: ${{ env.commit }}
-        working-directory: TVBoxOSC
-        run: |
-          echo "Before replacement:"
-          grep -r "buildPython" . --include="build.gradle" || echo "No buildPython found"
-          # 递归替换所有 build.gradle 中的 buildPython 路径
-          find . -name "build.gradle" -exec sed -i 's#buildPython\s*=\?\s*["'"'"'][^"'"'"']*["'"'"']#buildPython "python3"#g' {} \;
-          echo "After replacement:"
-          grep -r "buildPython" . --include="build.gradle" || echo "No buildPython found after replacement"
-      # ==========================================================
 
       - name: Set up Python
         if: ${{ env.commit }}
@@ -214,6 +209,7 @@ jobs:
   clean:
     needs: build
     runs-on: ubuntu-latest
+    if: always()
     steps:
       - name: Delete older workflow runs and artifacts
         uses: Mattraks/delete-workflow-runs@main
