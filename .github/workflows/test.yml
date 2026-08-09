@@ -77,12 +77,11 @@ jobs:
         run: |
           tar -cJf sourceCode-${{ env.commitS }}.tar.xz --exclude=.git --exclude=.github *
 
-      # ========== 重写签名配置（无 Base64） ==========
+      # ========== 签名配置（无 Base64） ==========
       - name: Release Apk Sign
         if: ${{ env.commit }}
         working-directory: TVBoxOSC
         run: |
-          # 创建签名配置片段
           cat << 'EOF' > signing_configs.gradle
           signingConfigs {
               if (project.hasProperty("RELEASE_STORE_FILE")) {
@@ -106,7 +105,6 @@ jobs:
                       }
           EOF
 
-          # 插入 signingConfigs（放在 defaultConfig 之前）
           cp app/build.gradle app/build.gradle.bak
           awk '
             /defaultConfig {/ {
@@ -116,11 +114,9 @@ jobs:
           ' app/build.gradle.bak > app/build.gradle
           rm app/build.gradle.bak
 
-          # 在 debug 和 release 块内插入 signingConfig 引用
           sed -i "/debug {/r signing_config.gradle" app/build.gradle
           sed -i "/release {/r signing_config.gradle" app/build.gradle
 
-          # 复制密钥并设置 gradle.properties
           cp -f ${{ github.workspace }}/.github/workflows/TVBoxOSC.jks app/TVBoxOSC.jks
           sed -i '$a\RELEASE_STORE_FILE=./TVBoxOSC.jks'     ./gradle.properties
           sed -i '$a\RELEASE_KEY_ALIAS=TVBoxOSC'            ./gradle.properties
@@ -129,23 +125,25 @@ jobs:
           sed -i 's/^#\(org.gradle.jvmargs=.*\)/\1/'        ./gradle.properties
 
           rm signing_configs.gradle signing_config.gradle
-      # ===================================================
+      # ===========================================
 
       - name: Create local.properties
         if: ${{ env.commit }}
         working-directory: TVBoxOSC
         run: echo "sdk.dir=/usr/local/lib/android/sdk" > local.properties
 
-      # ========== 改进 Python 路径修复 ==========
+      # ========== 修复所有 build.gradle 中的 Python 路径 ==========
       - name: Fix buildPython path
         if: ${{ env.commit }}
         working-directory: TVBoxOSC
         run: |
-          # 兼容 buildPython "..." / buildPython '...' / buildPython = "..."
-          sed -i 's/buildPython\s*=\?\s*["'"'"'][^"'"'"']*["'"'"']/buildPython "python3"/g' app/build.gradle
-          # 验证（不中断流程）
-          grep "buildPython" app/build.gradle || true
-      # ==========================================
+          echo "Before replacement:"
+          grep -r "buildPython" . --include="build.gradle" || echo "No buildPython found"
+          # 递归替换所有 build.gradle 中的 buildPython 路径
+          find . -name "build.gradle" -exec sed -i 's#buildPython\s*=\?\s*["'"'"'][^"'"'"']*["'"'"']#buildPython "python3"#g' {} \;
+          echo "After replacement:"
+          grep -r "buildPython" . --include="build.gradle" || echo "No buildPython found after replacement"
+      # ==========================================================
 
       - name: Set up Python
         if: ${{ env.commit }}
