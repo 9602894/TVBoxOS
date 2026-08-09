@@ -77,12 +77,12 @@ jobs:
         run: |
           tar -cJf sourceCode-${{ env.commitS }}.tar.xz --exclude=.git --exclude=.github *
 
-      # ========== 重写签名配置步骤（不再使用 Base64） ==========
+      # ========== 重写签名配置（无 Base64） ==========
       - name: Release Apk Sign
         if: ${{ env.commit }}
         working-directory: TVBoxOSC
         run: |
-          # 1. 创建签名配置的 Groovy 代码（直接写入文件）
+          # 创建签名配置片段
           cat << 'EOF' > signing_configs.gradle
           signingConfigs {
               if (project.hasProperty("RELEASE_STORE_FILE")) {
@@ -106,12 +106,7 @@ jobs:
                       }
           EOF
 
-          # 2. 将配置插入到 app/build.gradle
-          # 插入 signingConfigs 块（放在 defaultConfig 之前）
-          sed -i "/defaultConfig {/i\\$(sed 's/[\&/]/\\&/g' signing_configs.gradle | sed 's/$/\\/')" app/build.gradle
-          # 注意：由于 sed i 不支持多行直接插入，使用 sed 的 r 命令更简单，但为了兼容，我们采用下面方法：
-          # 使用 awk 或直接写入临时文件再替换
-          # 更稳妥：先备份，再用 awk 插入
+          # 插入 signingConfigs（放在 defaultConfig 之前）
           cp app/build.gradle app/build.gradle.bak
           awk '
             /defaultConfig {/ {
@@ -121,12 +116,11 @@ jobs:
           ' app/build.gradle.bak > app/build.gradle
           rm app/build.gradle.bak
 
-          # 插入 signingConfig 引用（放在 debug 和 release 块内）
-          # 使用 sed 在 debug { 和 release { 后面插入
+          # 在 debug 和 release 块内插入 signingConfig 引用
           sed -i "/debug {/r signing_config.gradle" app/build.gradle
           sed -i "/release {/r signing_config.gradle" app/build.gradle
 
-          # 3. 复制密钥文件并设置 gradle.properties
+          # 复制密钥并设置 gradle.properties
           cp -f ${{ github.workspace }}/.github/workflows/TVBoxOSC.jks app/TVBoxOSC.jks
           sed -i '$a\RELEASE_STORE_FILE=./TVBoxOSC.jks'     ./gradle.properties
           sed -i '$a\RELEASE_KEY_ALIAS=TVBoxOSC'            ./gradle.properties
@@ -134,22 +128,24 @@ jobs:
           sed -i '$a\RELEASE_KEY_PASSWORD=TVBoxOSC'         ./gradle.properties
           sed -i 's/^#\(org.gradle.jvmargs=.*\)/\1/'        ./gradle.properties
 
-          # 清理临时文件
           rm signing_configs.gradle signing_config.gradle
-      # =======================================================
+      # ===================================================
 
       - name: Create local.properties
         if: ${{ env.commit }}
         working-directory: TVBoxOSC
         run: echo "sdk.dir=/usr/local/lib/android/sdk" > local.properties
 
+      # ========== 改进 Python 路径修复 ==========
       - name: Fix buildPython path
         if: ${{ env.commit }}
         working-directory: TVBoxOSC
         run: |
-          # 将硬编码的Windows Python路径替换为 'python3'
-          sed -i 's#buildPython ".*"#buildPython "python3"#g' app/build.gradle
-          grep "buildPython" app/build.gradle
+          # 兼容 buildPython "..." / buildPython '...' / buildPython = "..."
+          sed -i 's/buildPython\s*=\?\s*["'"'"'][^"'"'"']*["'"'"']/buildPython "python3"/g' app/build.gradle
+          # 验证（不中断流程）
+          grep "buildPython" app/build.gradle || true
+      # ==========================================
 
       - name: Set up Python
         if: ${{ env.commit }}
