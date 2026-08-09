@@ -77,15 +77,56 @@ jobs:
         run: |
           tar -cJf sourceCode-${{ env.commitS }}.tar.xz --exclude=.git --exclude=.github *
 
+      # ========== 重写签名配置步骤（不再使用 Base64） ==========
       - name: Release Apk Sign
         if: ${{ env.commit }}
         working-directory: TVBoxOSC
         run: |
-          signingConfigs='ICAgIHNpZ25pbmdDb25maWdzIHtcCiAgICAgICAgaWYgKHByb2plY3QuaGFzUHJvcGVydHkoIlJFTEVBU0VfU1RPUkVfRklMRSIpKSB7XAogICAgICAgICAgICBteUNvbmZpZyB7XAogICAgICAgICAgICAgICAgc3RvcmVGaWxlIGZpbGUoUkVMRUFTRV9TVE9SRV9GSUxFKVwKICAgICAgICAgICAgICAgIHN0b3JlUGFzc3dvcmQgUkVMRUFTRV9TVE9SRV9QQVNTV09SRFwKICAgICAgICAgICAgICAgIGtleUFsaWFzIFJFTEVBU0VfS0VZX0FMSUFTXAogICAgICAgICAgICAgICAga2V5UGFzc3dvcmQgUkVMRUFTRV9LRVlfUEFTU1dPUkRcCiAgICAgICAgICAgICAgICB2MVNpZ25pbmdFbmFibGVkIHRydWVcCiAgICAgICAgICAgICAgICB2MlNpZ25pbmdFbmFibGVkIHRydWVcCiAgICAgICAgICAgICAgICBlbmFibGVWM1NpZ25pbmdjID0gdHJ1ZVwKICAgICAgICAgICAgICAgIGVuYWJsZVY0U2lnbmluZyA9IHRydWVcCiAgICAgICAgICAgIH1cCiAgICAgICAgfVwKICAgIH1cKXA=='
-          signingConfig='ICAgICAgICAgICAgaWYgKHByb2plY3QuaGFzUHJvcGVydHkoIlJFTEVBU0VfU1RPUkVfRklMRSIpKSB7XAogICAgICAgICAgICAgICAgc2lnbmluZ0NvbmZpZyBzaWduaW5nQ29uZmlncy5teUNvbmZpZ1wKICAgICAgICAgICAgfVwK'
-          signingConfigs="$(echo "$signingConfigs" |base64 -d )"
-          signingConfig="$(echo "$signingConfig" |base64 -d )"
-          sed -i -e "/defaultConfig {/i\\$signingConfigs " -e "/debug {/a\\$signingConfig " -e "/release {/a\\$signingConfig " app/build.gradle
+          # 1. 创建签名配置的 Groovy 代码（直接写入文件）
+          cat << 'EOF' > signing_configs.gradle
+          signingConfigs {
+              if (project.hasProperty("RELEASE_STORE_FILE")) {
+                  myConfig {
+                      storeFile file(RELEASE_STORE_FILE)
+                      storePassword RELEASE_STORE_PASSWORD
+                      keyAlias RELEASE_KEY_ALIAS
+                      keyPassword RELEASE_KEY_PASSWORD
+                      v1SigningEnabled true
+                      v2SigningEnabled true
+                      enableV3Signing = true
+                      enableV4Signing = true
+                  }
+              }
+          }
+          EOF
+
+          cat << 'EOF' > signing_config.gradle
+                      if (project.hasProperty("RELEASE_STORE_FILE")) {
+                          signingConfig signingConfigs.myConfig
+                      }
+          EOF
+
+          # 2. 将配置插入到 app/build.gradle
+          # 插入 signingConfigs 块（放在 defaultConfig 之前）
+          sed -i "/defaultConfig {/i\\$(sed 's/[\&/]/\\&/g' signing_configs.gradle | sed 's/$/\\/')" app/build.gradle
+          # 注意：由于 sed i 不支持多行直接插入，使用 sed 的 r 命令更简单，但为了兼容，我们采用下面方法：
+          # 使用 awk 或直接写入临时文件再替换
+          # 更稳妥：先备份，再用 awk 插入
+          cp app/build.gradle app/build.gradle.bak
+          awk '
+            /defaultConfig {/ {
+              while ((getline line < "signing_configs.gradle") > 0) print line
+            }
+            {print}
+          ' app/build.gradle.bak > app/build.gradle
+          rm app/build.gradle.bak
+
+          # 插入 signingConfig 引用（放在 debug 和 release 块内）
+          # 使用 sed 在 debug { 和 release { 后面插入
+          sed -i "/debug {/r signing_config.gradle" app/build.gradle
+          sed -i "/release {/r signing_config.gradle" app/build.gradle
+
+          # 3. 复制密钥文件并设置 gradle.properties
           cp -f ${{ github.workspace }}/.github/workflows/TVBoxOSC.jks app/TVBoxOSC.jks
           sed -i '$a\RELEASE_STORE_FILE=./TVBoxOSC.jks'     ./gradle.properties
           sed -i '$a\RELEASE_KEY_ALIAS=TVBoxOSC'            ./gradle.properties
@@ -93,21 +134,22 @@ jobs:
           sed -i '$a\RELEASE_KEY_PASSWORD=TVBoxOSC'         ./gradle.properties
           sed -i 's/^#\(org.gradle.jvmargs=.*\)/\1/'        ./gradle.properties
 
+          # 清理临时文件
+          rm signing_configs.gradle signing_config.gradle
+      # =======================================================
+
       - name: Create local.properties
         if: ${{ env.commit }}
         working-directory: TVBoxOSC
         run: echo "sdk.dir=/usr/local/lib/android/sdk" > local.properties
 
-      # ========== 新增：自动修复 Python 路径 ==========
       - name: Fix buildPython path
         if: ${{ env.commit }}
         working-directory: TVBoxOSC
         run: |
           # 将硬编码的Windows Python路径替换为 'python3'
-          sed -i "s#buildPython \".*\"#buildPython \"python3\"#g" app/build.gradle
-          # 验证修改是否成功
+          sed -i 's#buildPython ".*"#buildPython "python3"#g' app/build.gradle
           grep "buildPython" app/build.gradle
-      # ===========================================
 
       - name: Set up Python
         if: ${{ env.commit }}
