@@ -32,9 +32,9 @@
         android:theme="@style/AppTheme.NoActionBar"
         android:usesCleartextTraffic="true">
 
-        <!-- 入口改为 LivePlayActivity，打开直接进入直播 -->
+        <!-- 首页恢复为 LAUNCHER 入口 -->
         <activity
-            android:name=".ui.activity.LivePlayActivity"
+            android:name=".ui.activity.HomeActivity"
             android:exported="true"
             android:screenOrientation="sensorLandscape">
             <intent-filter>
@@ -44,10 +44,9 @@
             </intent-filter>
         </activity>
 
-        <!-- 原来的首页去掉 MAIN/LAUNCHER，保留 Activity 定义 -->
+        <!-- LivePlayActivity 不再作为入口 -->
         <activity
-            android:name=".ui.activity.HomeActivity"
-            android:exported="true"
+            android:name=".ui.activity.LivePlayActivity"
             android:screenOrientation="sensorLandscape" />
 
         <activity
@@ -81,11 +80,12 @@
             android:name=".dlna.DLNACastService"
             android:exported="false" />
 
+        <!-- 修正广播接收器的 action 拼写错误 -->
         <receiver
             android:name=".receiver.SearchReceiver"
             android:exported="false">
             <intent-filter>
-                <action android:name="android.contentmovie.search.Action" />
+                <action android:name="android.content.movie.search.Action" />   <!-- 这里补上点号 -->
             </intent-filter>
         </receiver>
         <receiver
@@ -98,7 +98,7 @@
         <receiver
             android:name=".receiver.CustomWebReceiver"
             android:exported="false">
-             <intent-filter>
+            <intent-filter>
                 <action android:name="android.content.movie.custom.web.Action" />
             </intent-filter>
         </receiver>
