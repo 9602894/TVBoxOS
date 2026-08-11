@@ -106,6 +106,9 @@ public class HomeActivity extends BaseActivity {
     private final Handler mHandler = new Handler();
     private long mExitTime = 0;
     private boolean eventBusRegistered = false;
+    // MODIFIED: 添加首次加载标志
+    private boolean firstLoad = true;
+
     private final Runnable mRunnable = new Runnable() {
         @SuppressLint("SetTextI18n")
         @Override
@@ -333,6 +336,13 @@ public class HomeActivity extends BaseActivity {
                 loadingSourceKey = null;
                 previousHomeName = null;
                 previousHomeSource = null;
+
+                // MODIFIED: 首次加载完成且需要进入直播时，跳转至直播界面
+                if (firstLoad && !useCacheConfig && Hawk.get(HawkConfig.DEFAULT_LOAD_LIVE, false)) {
+                    firstLoad = false;
+                    startActivity(new Intent(HomeActivity.this, LivePlayActivity.class));
+                    finish();
+                }
             }
         });
     }
@@ -350,10 +360,11 @@ public class HomeActivity extends BaseActivity {
             } else {
                 LOG.e("无");
             }
-            if (!useCacheConfig && Hawk.get(HawkConfig.DEFAULT_LOAD_LIVE, false)) {
-                jumpActivity(LivePlayActivity.class);
-            }
-            //爬虫预热 仅首次加载
+            // MODIFIED: 移除原有的立即跳转逻辑，改为在数据加载完成后跳转
+            // if (!useCacheConfig && Hawk.get(HawkConfig.DEFAULT_LOAD_LIVE, false)) {
+            //     jumpActivity(LivePlayActivity.class);
+            // }
+            // 爬虫预热 仅首次加载
             if(!useCacheConfig)warmSearchSpidersOnce();
             return;
         }
